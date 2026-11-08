@@ -1074,6 +1074,7 @@ button{cursor:pointer}
 .ios-share{width:15px;height:15px;vertical-align:-2px;color:var(--accent-2)}
 
 /* Gruß */
+.in-check{display:block;margin-top:6px;font-size:11px;color:var(--muted)}
 .rv-w{font-size:11.5px;font-weight:700;color:#b5541b;margin-top:4px}
 .rv.warn{border-color:rgba(181,84,27,.35);background:rgba(255,200,61,.12)}
 .credit .ver{display:block;font-size:10.5px;color:var(--muted);margin-top:3px;font-weight:600}
@@ -1227,7 +1228,7 @@ button{cursor:pointer}
 
       <div class="section-t">Mehr</div>
       <div class="footer-acts">
-        <button class="btn" id="bInstall" hidden style="grid-column:1/-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 8v6M9 11l3 3 3-3"/></svg>Als App aufs Handy</button>
+        <button class="btn" id="bInstall" style="grid-column:1/-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 8v6M9 11l3 3 3-3"/></svg>Als App aufs Handy</button>
         <button class="btn" id="bDemo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>Beispiel ansehen</button>
         <button class="btn" id="bExport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Sichern</button>
         <button class="btn" id="bImport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>Laden</button>
@@ -1280,7 +1281,7 @@ button{cursor:pointer}
 <div class="toast" id="toast"></div>
 <div class="install" id="install" hidden>
   <img src="icon-192.png" alt="" onerror="this.style.display='none'">
-  <div class="in-t"><b>Als App aufs Handy holen?</b><span id="inText">Dann ist deine Bahn-Tour immer nur einen Tipp entfernt.</span></div>
+  <div class="in-t"><b id="inTitle">Als App aufs Handy holen?</b><span id="inText">Dann ist deine Bahn-Tour immer nur einen Tipp entfernt.</span><small class="in-check" id="inCheck"></small></div>
   <div class="in-a"><button class="btn ghost" id="inLater">Später</button><button class="btn primary" id="inGo">Installieren</button></div>
 </div>
 <div class="review" id="poster" role="dialog" aria-modal="true" aria-label="Poster">
@@ -2409,33 +2410,59 @@ $('#bDemo').onclick=()=>{
 };
 
 /* ================= Als App installieren ================= */
-const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+const UA=navigator.userAgent;
+const isIOS=/iphone|ipad|ipod/i.test(UA) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+const isAndroid=/android/i.test(UA);
+const inApp=/FBAN|FBAV|Instagram|Line\/|WhatsApp|; wv\)/i.test(UA);
+const browser = /DuckDuckGo/i.test(UA)?'DuckDuckGo' : /SamsungBrowser/i.test(UA)?'Samsung Internet' : /Firefox|FxiOS/i.test(UA)?'Firefox' : /EdgA|EdgiOS|Edg\//i.test(UA)?'Edge' : /OPR|Opera/i.test(UA)?'Opera' : /CriOS/i.test(UA)?'Chrome (iPhone)' : /Chrome/i.test(UA)?'Chrome' : /Safari/i.test(UA)?'Safari':'Browser';
 const isStandalone=()=> matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
 let deferredPrompt=null;
 const inSeen=()=>{ try{ return localStorage.getItem('schienenspuren.install')==='1'; }catch(e){ return false; } };
 const inMark=()=>{ try{ localStorage.setItem('schienenspuren.install','1'); }catch(e){} };
-function showInstall(force){
-  if(isStandalone() || (!force && inSeen())) return;
-  if(!deferredPrompt && !isIOS) return;
-  if(isIOS && !deferredPrompt){
-    $('#inText').innerHTML='Unten in Safari auf <b>Teilen</b> <svg class="ios-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg> tippen, dann <b>„Zum Home-Bildschirm“</b>.';
-    $('#inGo').textContent='Verstanden';
-  }
-  $('#install').hidden=false;
+const SHARE='<svg class="ios-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+function installSteps(){
+  if(isStandalone()) return {t:'Schon installiert 🎉', h:'Du benutzt Schienenspuren bereits als App.'};
+  if(deferredPrompt) return {t:'Als App aufs Handy holen?', h:'Ein Tipp auf <b>Installieren</b>, dann einmal bestätigen.', go:true};
+  if(inApp) return {t:'Erst im Browser öffnen', h:`Du bist gerade im Browser einer anderen App (z. B. WhatsApp). Tippe oben auf <b>⋮</b> bzw. <b>${isIOS?'das Safari-Symbol':'„Im Browser öffnen“'}</b> und installiere dann von dort.`};
+  if(isIOS && browser!=='Safari') return {t:'Bitte in Safari öffnen', h:'Auf dem iPhone geht das Installieren am zuverlässigsten in <b>Safari</b>: Link kopieren, in Safari öffnen, dann <b>Teilen</b> '+SHARE+' → <b>„Zum Home-Bildschirm“</b>.'};
+  if(isIOS) return {t:'Als App aufs iPhone', h:'Unten auf <b>Teilen</b> '+SHARE+' tippen, nach unten scrollen und <b>„Zum Home-Bildschirm“</b> wählen.'};
+  if(isAndroid && browser==='Chrome') return {t:'Als App installieren', h:'Oben rechts auf <b>⋮</b> tippen und <b>„App installieren“</b> bzw. <b>„Zum Startbildschirm hinzufügen“</b> wählen.'};
+  if(isAndroid) return {t:'Als App aufs Handy', h:`In <b>${browser}</b> geht das über das Menü (<b>⋮</b> oder <b>☰</b>) → <b>„Zum Startbildschirm hinzufügen“</b>. Als richtige App mit eigenem Fenster klappt es am besten in <b>Chrome</b>.`};
+  return {t:'Als App installieren', h:'In Chrome oder Edge rechts in der Adressleiste auf das Installieren-Symbol klicken.'};
 }
-addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredPrompt=e; $('#bInstall').hidden=false; setTimeout(()=>showInstall(false),3500); });
-addEventListener('appinstalled',()=>{ $('#install').hidden=true; $('#bInstall').hidden=true; deferredPrompt=null; inMark(); toast('Installiert! Du findest Schienenspuren jetzt auf deinem Startbildschirm.'); });
+async function techCheck(){
+  if(!HOSTED) return 'Die Datei ist lokal geöffnet. Installieren klappt nur über den GitHub-Link.';
+  const ok=[], miss=[];
+  try{ const r=await fetch('manifest.webmanifest',{cache:'no-store'}); (r.ok?ok:miss).push('manifest.webmanifest'); }catch(e){ miss.push('manifest.webmanifest'); }
+  try{ const r=await fetch('icon-192.png',{cache:'no-store',method:'HEAD'}); (r.ok?ok:miss).push('Icons'); }catch(e){ miss.push('Icons'); }
+  let sw=false; try{ sw=!!(await navigator.serviceWorker?.getRegistration()); }catch(e){}
+  if(!sw) miss.push('sw.js');
+  return miss.length ? `Technik-Check: Es fehlt ${miss.join(', ')} auf GitHub.` : `Technik-Check: alles da ✓ · Browser: ${browser}`;
+}
+async function showInstall(force){
+  if(isStandalone() && !force) return;
+  if(!force && inSeen()) return;
+  const st=installSteps();
+  $('#inTitle').textContent=st.t; $('#inText').innerHTML=st.h;
+  $('#inGo').textContent = st.go ? 'Installieren' : 'Alles klar';
+  $('#inCheck').textContent=''; $('#install').hidden=false;
+  if(force) $('#inCheck').textContent=await techCheck();
+}
+addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredPrompt=e; setTimeout(()=>showInstall(false),3500); });
+addEventListener('appinstalled',()=>{ $('#install').hidden=true; deferredPrompt=null; inMark(); toast('Installiert! Du findest Schienenspuren jetzt auf deinem Startbildschirm.'); });
 $('#inLater').onclick=()=>{ $('#install').hidden=true; inMark(); };
 $('#inGo').onclick=async()=>{
-  if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; $('#bInstall').hidden=true; }
+  if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; }
   $('#install').hidden=true; inMark();
 };
+$('#bInstall').hidden = isStandalone();
 $('#bInstall').onclick=()=>showInstall(true);
-if(isIOS && !isStandalone()){ $('#bInstall').hidden=false; setTimeout(()=>showInstall(false),4000); }
+// Ohne Ein-Klick-Angebot (iPhone, DuckDuckGo, Firefox …): einmalig Anleitung zeigen
+if(HOSTED && !isStandalone()) setTimeout(()=>{ if(!deferredPrompt && (isIOS||isAndroid)) showInstall(false); },6000);
 if(HOSTED && 'serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 
 /* ================= Start ================= */
-const APP_VER='Version 12 · 08.11.2026';
+const APP_VER='Version 13 · 08.11.2026';
 
 load();
 // Aufräumen nach Update: alte Fehlerkennungen aus Screenshots entfernen (Menüleiste „Buchen“, „Meldungen“)
