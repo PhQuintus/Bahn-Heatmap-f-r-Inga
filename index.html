@@ -966,6 +966,23 @@ button{cursor:pointer}
 .more-times summary::before{content:"+ "}
 .more-times[open] summary::before{content:"– "}
 
+/* Bahnhofsnamen der eigenen Fahrten */
+.vlabel{pointer-events:none}
+.vlabel span{position:absolute;left:9px;top:-9px;white-space:nowrap;font-size:12px;font-weight:800;color:var(--ink);letter-spacing:-.01em;text-shadow:0 0 3px #fbf7ef,0 0 3px #fbf7ef,0 0 6px #fbf7ef}
+.sortbtn{flex:none;padding:8px 11px;font-size:12.5px;gap:5px}
+.sortbtn svg{width:14px;height:14px}
+.trip .meta .dt{color:var(--ink-2);font-weight:700}
+
+/* Fahrtenliste: Start/Ziel untereinander */
+.trip .st{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.trip .st .ln{display:flex;align-items:center;gap:9px;position:relative;min-width:0;max-width:100%}
+.trip .st .ln i{width:9px;height:9px;border-radius:50%;flex:none;box-sizing:border-box}
+.trip .st .ln i.o{border:2px solid var(--ink-2);background:var(--surface-solid)}
+.trip .st .ln i.p{background:var(--accent)}
+.trip .st .ln:first-child::after{content:"";position:absolute;left:4px;top:13px;height:9px;border-left:2px dotted var(--muted)}
+.trip .st .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trip .meta{margin-top:5px}
+
 /* Gruß */
 .credit{display:flex;align-items:center;gap:12px;margin:26px 2px 4px;padding:14px 16px;border-radius:16px;background:rgba(255,200,61,.22);border:1px dashed rgba(37,29,58,.18);font-size:12.5px;color:var(--ink-2);transform:rotate(-.6deg)}
 .credit svg{width:22px;height:22px;color:var(--accent);flex:none}
@@ -994,7 +1011,7 @@ button{cursor:pointer}
   .stat .v{font-size:18px}
   .stat .v small{font-size:11px}
   .stat .l{font-size:10px}
-  .legend{left:auto;right:16px;bottom:auto;top:calc(env(safe-area-inset-top) + 172px);min-width:0;padding:7px 10px 6px;width:140px;border-radius:12px}
+  .legend{left:12px;right:auto;top:auto;bottom:calc(var(--sheet-peek,52vh) + 30px);min-width:0;padding:7px 10px 6px;width:140px;border-radius:12px}
   .legend .lt span:last-child{display:none}
   .legend .lt{margin-bottom:6px;font-size:10px}
   .legend .seg{display:none}
@@ -1006,7 +1023,8 @@ button{cursor:pointer}
   body.sheet-min{--sheet-h:118px;--sheet-peek:118px}
   body.sheet-min .sheet-toggle svg{transform:rotate(180deg)}
   .leaflet-bottom.leaflet-right{bottom:calc(var(--sheet-peek,52vh))}
-  .toast{bottom:calc(var(--sheet-peek,52vh) + 16px)}
+  .toast{bottom:auto;top:calc(env(safe-area-inset-top) + 12px);transform:translate(-50%,-20px)}
+  .toast.show{transform:translate(-50%,0)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -1121,6 +1139,7 @@ button{cursor:pointer}
     <section class="view" data-view="list" hidden>
       <div class="listtools">
         <input class="inp" id="search" placeholder="Fahrten durchsuchen …" autocomplete="off">
+        <button class="btn sortbtn" id="sortBtn" title="Reihenfolge umdrehen"></button>
       </div>
       <div class="trips" id="trips"></div>
     </section>
@@ -1227,7 +1246,7 @@ function edgeGeo(ei){
 const NAME = new Map(ST.map((s,i)=>[s[0],i]));
 const STKEY = ST.map(s=>keyOf(s[0]));
 const KEY = new Map();
-const STOP = new Set('ab an bis von nach uhr gleis zug zuege ice ic ec re rb sbahn ire flx bahn fahrt reise reisen hin ruck hinfahrt ruckfahrt ticket tickets preis eur euro klasse wagen platz sitzplatz details heute morgen gestern buchung storno alle mehr neu alt bad sankt st mo di mi do fr sa so umstieg umstiege dauer min std direkt verbindung'.split(' '));
+const STOP = new Set('buchen umgebung profil meldungen aktuelle erw kl einzel einzelfahrschein einzelfahrt gultig person reisende super sparpreis flexpreis last minute gemerkte liegen finden auftrage altere ausstieg einstieg ab an bis von nach uhr gleis zug zuege ice ic ec re rb sbahn ire flx bahn fahrt reise reisen hin ruck hinfahrt ruckfahrt ticket tickets preis eur euro klasse wagen platz sitzplatz details heute morgen gestern buchung storno alle mehr neu alt bad sankt st mo di mi do fr sa so umstieg umstiege dauer min std direkt verbindung'.split(' '));
 function addKey(k,i,alias){
   if(k.length<3||STOP.has(k)) return;
   const cur=KEY.get(k);
@@ -1287,8 +1306,22 @@ function findDate(line){
 }
 const isoDate = o => o&&o.y ? `${o.y}-${String(o.mo).padStart(2,'0')}-${String(o.d).padStart(2,'0')}` : '';
 
+// DB Navigator zeigt Nahverkehr als "Haltestelle, Stadt" (z. B. "Seckenheim OEG-Bahnhof, Mannheim")
+function stopCity(stop,city){
+  const c=city.replace(/\b(im|in der|an der|am|ob der|in)\b/gi,' ').replace(/\s+/g,' ').trim();
+  const sc=stop.replace(/(OEG|S|U)?-?(Haupt)?(Bahnhof|Bf)\b/gi,'').replace(/\s+/g,' ').trim();
+  const look=k=>{ const h=KEY.get(k); return h?h.i:null; };
+  const tries=[city+' '+stop, c+' '+stop, city+' '+sc, c+' '+sc, sc+' '+city];
+  if(sc && sc.length>=5) tries.push(sc);
+  if(!sc) tries.push(city, c);
+  for(const t of tries){ const k=keyOf(t); if(k.length>=3){ const r=look(k); if(r!=null) return r; } }
+  // sonst: Hauptbahnhof bzw. Bahnhof der Stadt
+  return look(keyOf(c)) ?? look(keyOf(city)) ?? look(keyOf(c)+'hbf');
+}
 function stationsInLine(raw){
-  let line = raw;
+  let line = raw.replace(/^[^A-Za-zÄÖÜäöü]*/,'').replace(/^(?:[A-Z]{1,2}|[©®]?Q)\s+(?=[A-ZÄÖÜ])/,'');
+  const sc = !/\d{1,2}:\d{2}/.test(line) && line.match(/^([^,]{2,}),\s*([A-ZÄÖÜ][A-Za-zÄÖÜäöüß .()\-\/]{1,40})$/);
+  if(sc){ const r=stopCity(sc[1].trim(),sc[2].trim()); return r!=null?[r]:[]; }
   const tm = line.match(TRAIN_RE);
   if(tm) line = line.slice(0, tm.index);         // Zugnummer + Richtungsangabe ignorieren
   line = line.replace(/\d{1,2}[:.]\d{2}/g,' | ').replace(/[→⟶➔>|–—•·]+/g,' | ');
@@ -1303,6 +1336,7 @@ function stationsInLine(raw){
       let k='';
       for(let j=i;j<Math.min(toks.length,i+7);j++){
         k+=keys[j]; if(!k) continue;
+        if(STOP.has(k)) continue;
         const hit=KEY.get(k);
         if(hit) cands.push({i,j,len:k.length,st:hit.i,alias:hit.alias,fz:0});
         else if(j-i<4){ const f=fuzzy(k); if(f) cands.push({i,j,len:k.length-0.5-f.d,st:f.i,alias:false,fz:f.d}); }
@@ -1346,9 +1380,25 @@ function parseText(text){
   const L=lines.map(l=>({raw:l, st:stationsInLine(l), date:findDate(l), ...lineInfo(l)}));
   const journeys=[]; let cur=null, date='';
   const close=()=>{ if(cur&&cur.occ.length) journeys.push(cur); cur=null; };
+  const SKIP_RE=/ausstieg in|einstieg in|umgebung|reisende person|meldungen|lter[e]? auftr|bahn\.de|vergangene reisen|^\W*bis\s+\d/i;
+  const TICKET_RE=/fahrschein|ticket|sparpreis|flexpreis|einzelfahrt|fahrkarte|tageskarte|bahncard|\berw\./i;
+  const VALID_RE=/g[uü]ltig ab[^,]*,\s*(\d{1,2}:\d{2})/i;
+  let skipGem=false;
   for(let i=0;i<L.length;i++){
     const x=L[i];
-    if(x.date){ close(); date=isoDate(x.date); }
+    if(SKIP_RE.test(x.raw)) continue;
+    const vm=x.raw.match(VALID_RE);
+    if(vm){ if(cur){ if(!cur.date) cur.date=isoDate(x.date); cur.valid=vm[1].padStart(5,'0'); } continue; }
+    if(x.date){
+      const nd=isoDate(x.date);
+      if(nd && nd!==date){
+        if(cur && !cur.date){ cur.date=nd; date=nd; }      // Datum steht in der Karte unter den Bahnhöfen
+        else { close(); date=nd; skipGem=false; }
+      }
+    }
+    if(/gemerkte reise/i.test(x.raw)){ close(); skipGem=true; continue; }   // nur gemerkt, nicht gefahren
+    if(TICKET_RE.test(x.raw) && !x.st.length){ close(); skipGem=false; continue; }
+    if(skipGem) continue;
     if(/hinfahrt|r[uü]ckfahrt|vergangene|buchungsnummer|auftragsnummer/i.test(x.raw)) close();
     if(!x.st.length){
       if(x.train && cur && cur.occ.length){ const lo=cur.occ[cur.occ.length-1]; if(!lo.train) lo.train=x.train; }
@@ -1395,7 +1445,7 @@ function parseText(text){
     for(let k=0;k+1<stops.length;k++){
       const A=stops[k], B=stops[k+1];
       if(A.st===B.st || hav(ST[A.st],ST[B.st])<=2) continue;
-      const leg={a:A.st,b:B.st,d:J.date,dep:A.dep?A.dep.P:'',arr:B.arr?B.arr.P:''}; if(A.train) leg.zug=A.train;
+      const leg={a:A.st,b:B.st,d:J.date,dep:A.dep?A.dep.P:'',arr:B.arr?B.arr.P:''}; if(A.train) leg.zug=A.train; if(J.valid) leg.gv=J.valid;
       if(k>0 && A.transfer && A.arr && A.dep){ const w=diff(toMin(A.arr.A||A.arr.P),toMin(A.dep.A||A.dep.P)); if(w>0&&w<=360) leg.wait=w; }
       jl.push(leg);
     }
@@ -1431,15 +1481,18 @@ L.polyline(GEO.borders.map(ll),{renderer:baseR,pane:'base',color:'#c4b49c',weigh
 const CITY1=['Berlin Hbf','Hamburg Hbf','München Hbf','Köln Hbf','Frankfurt (Main) Hbf','Stuttgart Hbf','Leipzig Hbf','Dresden Hbf','Hannover Hbf','Nürnberg Hbf','Düsseldorf Hbf','Bremen Hbf','Wien Hbf','Zürich HB','Amsterdam Centraal','Paris Est','Praha hl.n.','Kobenhavn H','Bruxelles-Midi','Warszawa Centralna','Milano Centrale','London St Pancras'];
 const CITY2=['Dortmund Hbf','Essen Hbf','Kiel Hbf','Rostock Hbf','Erfurt Hbf','Magdeburg Hbf','Kassel Hbf','Freiburg (Breisgau) Hbf','Karlsruhe Hbf','Mannheim Hbf','Münster (Westf) Hbf','Bielefeld Hbf','Würzburg Hbf','Regensburg Hbf','Augsburg Hbf','Ulm Hbf','Saarbrücken Hbf','Bonn Hbf','Aachen Hbf','Mainz Hbf','Osnabrück Hbf','Lübeck Hbf','Chemnitz Hbf','Braunschweig Hbf','Potsdam Hbf','Basel SBB','Salzburg Hbf','Innsbruck Hbf','Luxembourg','Strasbourg','Wiesbaden Hbf','Halle (Saale) Hbf','Schwerin Hbf','Flensburg Hbf','Passau Hbf','Koblenz Hbf','Göttingen Hbf','Trier Hbf','Bern','Lyon Part-Dieu','Wroclaw Glowny','Poznan Glowny','Gdansk Glowny','Krakow Glowny','Budapest-Keleti','Bratislava hl.st.','Linz Hbf','Graz Hbf','Rotterdam Centraal','Utrecht Centraal','Antwerpen-Centraal','Venezia S. Lucia','Verona Porta Nuova','Stockholm Central','Oslo S','Malmö C','Aarhus H','Ljubljana','Zagreb Glavni kol.','Roma Termini','Marseille St-Charles'];
 const cityName=n=>({'Kobenhavn H':'Kopenhagen','Praha hl.n.':'Prag','Bruxelles-Midi':'Brüssel','Warszawa Centralna':'Warschau','Milano Centrale':'Mailand','London St Pancras':'London','Paris Est':'Paris','Amsterdam Centraal':'Amsterdam','Zürich HB':'Zürich','Basel SBB':'Basel','Luxembourg':'Luxemburg','Strasbourg':'Straßburg','Lyon Part-Dieu':'Lyon','Wroclaw Glowny':'Breslau','Poznan Glowny':'Posen','Gdansk Glowny':'Danzig','Krakow Glowny':'Krakau','Budapest-Keleti':'Budapest','Bratislava hl.st.':'Bratislava','Rotterdam Centraal':'Rotterdam','Utrecht Centraal':'Utrecht','Antwerpen-Centraal':'Antwerpen','Venezia S. Lucia':'Venedig','Verona Porta Nuova':'Verona','Stockholm Central':'Stockholm','Oslo S':'Oslo','Malmö C':'Malmö','Aarhus H':'Aarhus','Zagreb Glavni kol.':'Zagreb','Roma Termini':'Rom','Marseille St-Charles':'Marseille'}[n]||n.replace(/\s*Hbf$/,'').replace(/\s*\((Main|Breisgau|Westf|Saale)\)/,''));
-const shown=new Set();
+const shown=new Set(), CITYM=[];
 const addCity=(n,tier)=>{ const i=NAME.get(n); if(i==null||shown.has(i)) return; shown.add(i); const s=ST[i];
-  L.marker([s[1],s[2]],{pane:'labels',interactive:false,keyboard:false,icon:L.divIcon({className:'city t'+tier,html:`<i></i><span>${esc(cityName(n))}</span>`,iconSize:[0,0]})}).addTo(map); };
+  CITYM.push({s, m:null}); CITYM[CITYM.length-1].m=L.marker([s[1],s[2]],{pane:'labels',interactive:false,keyboard:false,icon:L.divIcon({className:'city t'+tier,html:`<i></i><span>${esc(cityName(n))}</span>`,iconSize:[0,0]})}).addTo(map); };
 CITY1.forEach(n=>addCity(n,1)); CITY2.forEach(n=>addCity(n,2));
 ST.forEach(s=>{ if(/ Hbf$/.test(s[0])) addCity(s[0],3); });
 const setZ=()=>{ const z=map.getZoom(); const c=map.getContainer(); c.classList.toggle('z-lo',z<6); c.classList.toggle('z-mid',z>=6&&z<8); c.classList.toggle('z-hi',z>=8); };
 map.on('zoomend',setZ); setZ();
 L.control.zoom({position:'bottomright'}).addTo(map);
 const renderer = L.canvas({padding:.5,tolerance:6});
+// eigener Canvas für den Schein, damit er nie über die Linien gemalt wird
+map.createPane('glow'); map.getPane('glow').style.zIndex=390; map.getPane('glow').style.pointerEvents='none';
+const glowR = L.canvas({pane:'glow',padding:.5});
 const glowLayer = L.layerGroup().addTo(map), lineLayer=L.layerGroup().addTo(map), dotLayer=L.layerGroup().addTo(map);
 let opt={mode:'rail',dots:true};
 
@@ -1451,6 +1504,8 @@ function rampColor(t){
   const h=x=>[1,3,5].map(o=>parseInt(x.substr(o,2),16)); const a=h(RAMP[i]), b=h(RAMP[i+1]);
   return '#'+a.map((v,k)=>Math.round(v+(b[k]-v)*f).toString(16).padStart(2,'0')).join('');
 }
+// Deckende Mischfarbe mit dem Papierton → keine dunklen Flecken, wo sich Abschnitte überlappen
+function paperMix(hex,a){ const h=x=>[1,3,5].map(o=>parseInt(x.substr(o,2),16)); const c=h(hex), p=[251,247,239]; return '#'+c.map((v,i)=>Math.round(p[i]+(v-p[i])*a).toString(16).padStart(2,'0')).join(''); }
 $('#lgBar').style.background=`linear-gradient(90deg,${RAMP.join(',')})`;
 
 function curve(A,B){
@@ -1494,7 +1549,20 @@ function aggregate(){
   return {pairs:[...pairs.values()].sort((x,y)=>x.c-y.c), stn, km, n, T, CO2};
 }
 
-let AGG=null;
+let AGG=null, VLAB=[];
+map.createPane('vlabels'); map.getPane('vlabels').style.zIndex=620; map.getPane('vlabels').style.pointerEvents='none';
+// Beschriftungen ohne Überlappung: wichtigste Bahnhöfe zuerst, verdeckte ausblenden
+function placeLabels(){
+  const boxes=[];
+  for(const v of VLAB){
+    const el=v.m.getElement(); if(!el) continue;
+    const p=map.latLngToContainerPoint([v.s[1],v.s[2]]); const w=v.txt.length*7.2+14, h=18;
+    const b=[p.x+6,p.y-h/2,p.x+6+w,p.y+h/2];
+    const hit=boxes.some(o=>!(b[2]<o[0]||b[0]>o[2]||b[3]<o[1]||b[1]>o[3]));
+    el.style.visibility=hit?'hidden':''; if(!hit) boxes.push(b);
+  }
+}
+map.on('zoomend',()=>placeLabels());
 function drawMap(){
   glowLayer.clearLayers(); lineLayer.clearLayers(); dotLayer.clearLayers();
   const {pairs,stn}=AGG;
@@ -1504,7 +1572,7 @@ function drawMap(){
   for(const e of pairs){
     const r = opt.mode==='rail' ? routeFor(e.p,e.q) : null;
     if(!r){ arcs.push(e); continue; }
-    for(const ei of r.edges){ const x=segs.get(ei)||{c:0,names:[]}; x.c+=e.c; x.names.push([e.c,ST[e.p][0]+' ↔ '+ST[e.q][0]]); segs.set(ei,x); }
+    for(const ei of r.edges){ const x=segs.get(ei)||{c:0,names:[]}; x.c+=e.c; x.names.push([e.c,dn(ST[e.p][0])+' ↔ '+dn(ST[e.q][0])]); segs.set(ei,x); }
     if(r.cp>0.3) stubs.push([ST[e.p],r.np,e.c]); if(r.cq>0.3) stubs.push([ST[e.q],r.nq,e.c]);
   }
   let smax=1; segs.forEach(x=>{ if(x.c>smax) smax=x.c; }); arcs.forEach(e=>{ if(e.c>smax) smax=e.c; });
@@ -1512,30 +1580,37 @@ function drawMap(){
   // Gleise
   [...segs.entries()].sort((x,y)=>x[1].c-y[1].c).forEach(([ei,x])=>{
     const t=tOf2(x.c), col=rampColor(.12+.88*t), w=1.8+4.4*t, pts=edgeGeo(ei);
-    L.polyline(pts,{renderer,color:col,weight:w*3.2,opacity:.10+.10*t,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(glowLayer);
-    const pl=L.polyline(pts,{renderer,color:col,weight:w,opacity:.95,lineCap:'round',lineJoin:'round'}).addTo(lineLayer);
+    L.polyline(pts,{renderer:glowR,pane:'glow',color:paperMix(col,.22+.12*t),weight:w*2.6,opacity:1,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(glowLayer);
+    const pl=L.polyline(pts,{renderer,color:col,weight:w,opacity:1,lineCap:'round',lineJoin:'round'}).addTo(lineLayer);
     const top=x.names.sort((m,n)=>n[0]-m[0]).slice(0,3).map(n=>esc(n[1])).join('<br>');
     pl.bindTooltip(`<div class="tt-row"><span class="sw" style="background:${col}"></span><b>${x.c}× über diesen Abschnitt</b></div><div class="tt-sub">${top}${x.names.length>3?`<br>+ ${x.names.length-3} weitere`:''}</div>`,{sticky:true,className:'tt',direction:'top',offset:[0,-8]});
-    pl.on('mouseover',()=>pl.setStyle({weight:w+2.5,opacity:1})).on('mouseout',()=>pl.setStyle({weight:w,opacity:.95}));
+    pl.on('mouseover',()=>pl.setStyle({weight:w+2.5,opacity:1})).on('mouseout',()=>pl.setStyle({weight:w,opacity:1}));
   });
-  stubs.forEach(([S,n,c])=>{ const t=tOf2(c); L.polyline([[S[1],S[2]],n],{renderer,color:rampColor(.12+.88*t),weight:1.6+2*t,opacity:.8,dashArray:'2 4',interactive:false}).addTo(lineLayer); });
+  stubs.forEach(([S,n,c])=>{ const t=tOf2(c); L.polyline([[S[1],S[2]],n],{renderer,color:rampColor(.12+.88*t),weight:1.6+2*t,opacity:1,dashArray:'2 4',interactive:false}).addTo(lineLayer); });
   // Bögen (Modus „Bögen“ oder kein Gleisweg gefunden)
   for(const e of arcs){
     const A=ST[e.p],B=ST[e.q], t=tOf2(e.c), col=rampColor(.12+.88*t);
     const pts = curve(A,B);
     const w=1.6+4.6*t;
-    L.polyline(pts,{renderer,color:col,weight:w*3.2,opacity:.10+.10*t,interactive:false,lineCap:'round'}).addTo(glowLayer);
-    const pl=L.polyline(pts,{renderer,color:col,weight:w,opacity:.92,lineCap:'round',lineJoin:'round',dashArray:opt.mode==='rail'?'6 6':null}).addTo(lineLayer);
+    L.polyline(pts,{renderer:glowR,pane:'glow',color:paperMix(col,.22+.12*t),weight:w*2.6,opacity:1,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(glowLayer);
+    const pl=L.polyline(pts,{renderer,color:col,weight:w,opacity:1,lineCap:'round',lineJoin:'round',dashArray:opt.mode==='rail'?'6 6':null}).addTo(lineLayer);
     const km=Math.round(railKm(e.p,e.q));
     pl.bindTooltip(`<div class="tt-row"><span class="sw" style="background:${col}"></span><b>${esc(A[0])} ↔ ${esc(B[0])}</b></div><div class="tt-sub">${e.c}× gefahren · ≈ ${fmt(km)} km${opt.mode==='rail'?'<br>(kein Gleisweg im Kartennetz, daher als Bogen)':''}</div>${(()=>{const d=AGG.T.byPair.get([A[0],B[0]].sort().join(' ↔ '));return d?`<div class="tt-sub">Ø ${Math.round(d.m/d.n)} Min Verspätung (${d.n}× gemessen)</div>`:'';})()}`,{sticky:true,className:'tt',direction:'top',offset:[0,-8]});
-    pl.on('mouseover',()=>pl.setStyle({weight:w+2.5,opacity:1})).on('mouseout',()=>pl.setStyle({weight:w,opacity:.92}));
+    pl.on('mouseover',()=>pl.setStyle({weight:w+2.5,opacity:1})).on('mouseout',()=>pl.setStyle({weight:w,opacity:1}));
   }
+  // Namen der eigenen Bahnhöfe direkt an die Punkte; allgemeine Städtenamen in der Nähe ausblenden
+  const vis=[...stn.keys()];
+  CITYM.forEach(c=>{ const near=opt.dots&&vis.some(i=>hav(ST[i],c.s)<12); const el=c.m.getElement(); if(el) el.style.visibility=near?'hidden':''; });
+  VLAB=!opt.dots?[]:[...stn.entries()].sort((a,b)=>b[1]-a[1]).map(([i,c])=>{ const s=ST[i];
+    const m=L.marker([s[1],s[2]],{pane:'vlabels',interactive:false,keyboard:false,icon:L.divIcon({className:'vlabel',html:`<span>${esc(dn(s[0]).replace(/ Hbf$/,''))}</span>`,iconSize:[0,0]})}).addTo(dotLayer);
+    return {m,s,txt:dn(s[0]).replace(/ Hbf$/,'')}; });
+  placeLabels();
   if(opt.dots){
     const smax=Math.max(1,...stn.values());
     [...stn.entries()].sort((a,b)=>a[1]-b[1]).forEach(([i,c])=>{
       const t=smax>1?Math.sqrt((c-1)/(smax-1)):0, s=ST[i];
       L.circleMarker([s[1],s[2]],{renderer,radius:3.5+5*t,color:'#251d3a',weight:2,fillColor:'#ffffff',fillOpacity:1}).addTo(dotLayer)
-        .bindTooltip(`<b>${esc(s[0])}</b><div class="tt-sub">${c}× Start, Ziel oder Umstieg${AGG.T.byStation.get(s[0])?` · ${fmtDur(AGG.T.byStation.get(s[0]).m)} gewartet`:''}</div>`,{className:'tt',direction:'top',offset:[0,-6]});
+        .bindTooltip(`<b>${esc(dn(s[0]))}</b><div class="tt-sub">${c}× hier ein-, aus- oder umgestiegen${AGG.T.byStation.get(s[0])?` · ${fmtDur(AGG.T.byStation.get(s[0]).m)} gewartet`:''}</div>`,{className:'tt',direction:'top',offset:[0,-6]});
     });
   }
   $('#lgMax').textContent=max+'×';
@@ -1547,7 +1622,7 @@ function fit(){
   const pts=[...AGG.stn.keys()].map(i=>[ST[i][1],ST[i][2]]);
   const mobile=innerWidth<=820;
   if(mobile) document.body.classList.add('sheet-min');
-  map.flyToBounds(L.latLngBounds(pts),{paddingTopLeft:mobile?[30,210]:[60,190],paddingBottomRight:mobile?[30,150]:[460,60],maxZoom:10,duration:1.1});
+  map.flyToBounds(L.latLngBounds(pts),{paddingTopLeft:mobile?[40,175]:[60,190],paddingBottomRight:mobile?[60,215]:[460,60],maxZoom:10,duration:1.1});
 }
 
 /* ================= Stats (Count-up) ================= */
@@ -1577,25 +1652,33 @@ function heatColorFor(t){ // für Liste: Farbe der Verbindung
   return rampColor(.12+.88*tt);
 }
 const fmtDate = d => d ? d.split('-').reverse().join('.') : '';
+// kürzere Namen für die Anzeige (gespeichert bleibt der offizielle Name)
+const dn = n => n.replace(/^Frankfurt am Main /,'Frankfurt (M) ').replace(/Fernbahnhof$/,'Fernbf').replace(/^Flughafen BER - /,'BER ');
+const WD=['So.','Mo.','Di.','Mi.','Do.','Fr.','Sa.'], MO=['Jan.','Feb.','März','Apr.','Mai','Juni','Juli','Aug.','Sept.','Okt.','Nov.','Dez.'];
+const MOL=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const niceDate = d => { if(!d) return ''; const [y,m,dd]=d.split('-').map(Number); const dt=new Date(y,m-1,dd); return `${WD[dt.getDay()]} ${dd}. ${MO[m-1]} ${y}`; };
 const zugfinderUrl = z => 'https://www.zugfinder.net/de/zug-'+encodeURIComponent(z.trim().replace(/\s+/g,'_'));
 
 function renderList(){
   const q=fold($('#search').value.trim());
   const box=$('#trips');
   let trips=state.trips.slice();
-  if(q) trips=trips.filter(t=>fold(t.a+' '+t.b+' '+(t.src||'')+' '+fmtDate(t.d)).includes(q));
+  if(q) trips=trips.filter(t=>fold(t.a+' '+t.b+' '+(t.zug||'')+' '+fmtDate(t.d)+' '+niceDate(t.d)).includes(q));
   if(!trips.length){ box.innerHTML=`<div class="list-empty">${state.trips.length?'Keine Treffer.':'Noch leer hier.<br>Sobald du Screenshots reinwirfst, tauchen deine Fahrten auf.'}</div>`; return; }
-  // gruppiert nach Quelle (Screenshot) in Einfüge-Reihenfolge, neueste zuerst
+  // chronologisch nach Fahrtdatum (+ Abfahrtszeit), gruppiert nach Monat; ohne Datum ans Ende
+  const desc = state.sortDesc!==false;
+  const key = t => (t.d||'') + ' ' + (t.dep||t.gv||'');
+  trips.sort((x,y)=>{ if(!x.d!==!y.d) return x.d?-1:1; const c=key(x).localeCompare(key(y)); return desc?-c:c; });
   const groups=new Map();
-  for(let i=trips.length-1;i>=0;i--){ const t=trips[i]; const g=t.src||'Von Hand'; if(!groups.has(g)) groups.set(g,[]); groups.get(g).push(t); }
+  for(const t of trips){ const g=t.d?MOL[+t.d.slice(5,7)-1]+' '+t.d.slice(0,4):'Ohne Datum'; if(!groups.has(g)) groups.set(g,[]); groups.get(g).push(t); }
   let html='';
   for(const [g,arr] of groups){
-    html+=`<div class="group-h">${esc(g)} · ${arr.length}</div>`;
+    html+=`<div class="group-h">${esc(g)} <span class="num">· ${arr.length}</span></div>`;
     for(const t of arr){
       const km=Math.round(railKm(idx(t.a),idx(t.b)));
       html+=`<div class="trip" data-id="${t.id}"><span class="heat" style="background:${heatColorFor(t)}"></span>
-        <div class="route"><div class="st"><span class="nm" data-f="a" title="Klicken zum Ändern">${esc(t.a)}</span><span class="arr">→</span><span class="nm" data-f="b" title="Klicken zum Ändern">${esc(t.b)}</span></div>
-        <div class="meta num">${(t.n||1)>1?`<span class="cnt">${t.n}×</span>`:''}${t.d?`<span>${fmtDate(t.d)}</span>`:''}${t.zug?`<span>${esc(t.zug)}</span>`:''}${t.dep||t.arr?`<span>${t.dep||'?'}–${t.arr||'?'}</span>`:''}<span>≈ ${fmt(km)} km</span>${typeof t.delay==='number'?`<span class="pill ${t.delay<6?'ok':''}">${t.delay<6?'pünktlich':'+'+t.delay+' Min'}</span>`:''}${t.wait?`<span class="pill w">${t.wait} Min gewartet</span>`:''}</div></div>
+        <div class="route"><div class="st"><span class="ln"><i class="o"></i><span class="nm" data-f="a" title="Tippen zum Ändern">${esc(dn(t.a))}</span></span><span class="ln"><i class="p"></i><span class="nm" data-f="b" title="Tippen zum Ändern">${esc(dn(t.b))}</span></span></div>
+        <div class="meta num">${(t.n||1)>1?`<span class="cnt">${t.n}×</span>`:''}${t.d?`<span class="dt">${niceDate(t.d)}</span>`:''}${t.zug?`<span>${esc(t.zug)}</span>`:''}${t.dep&&t.arr?`<span>${t.dep}–${t.arr}</span>`:t.dep?`<span>ab ${t.dep}</span>`:t.arr?`<span>an ${t.arr}</span>`:''}<span>≈ ${fmt(km)} km</span>${typeof t.delay==='number'?`<span class="pill ${t.delay<6?'ok':''}">${t.delay<6?'pünktlich':'+'+t.delay+' Min'}</span>`:''}${t.wait?`<span class="pill w">${t.wait} Min gewartet</span>`:''}</div></div>
         <div class="acts"><button class="icon-btn ${openEdit===t.id?'on':''}" data-act="time" title="Zeiten &amp; Verspätung" aria-label="Zeiten und Verspätung bearbeiten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button><button class="icon-btn" data-act="rev" title="Richtung tauschen" aria-label="Richtung tauschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg></button><button class="icon-btn del" data-act="del" title="Löschen" aria-label="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>${openEdit===t.id?`<div class="trip-edit" data-id="${t.id}">
           <div><label>Datum</label><input class="inp" type="date" data-k="d" value="${t.d||''}"></div>
           <div><label>Wie oft</label><input class="inp" type="number" min="1" max="999" data-k="n" value="${t.n||1}"></div>
@@ -1645,15 +1728,15 @@ function renderTop(){
     </div></div>
     <div class="section-t">Auf einen Blick</div>
     <div class="facts">
-      <div class="fact"><div class="fl">Längste Verbindung</div><div class="fv">${esc(ST[longest.p][0])} – ${esc(ST[longest.q][0])}</div><div class="fs num">≈ ${fmt(Math.round(railKm(longest.p,longest.q)))} km</div></div>
+      <div class="fact"><div class="fl">Längste Verbindung</div><div class="fv">${esc(dn(ST[longest.p][0]))} – ${esc(dn(ST[longest.q][0]))}</div><div class="fs num">≈ ${fmt(Math.round(railKm(longest.p,longest.q)))} km</div></div>
       <div class="fact"><div class="fl">Um die Erde</div><div class="fv num">${earth} %</div><div class="fs">des Äquators gefahren</div></div>
       <div class="fact"><div class="fl">Am weitesten im Norden</div><div class="fv">${esc(ST[north][0])}</div></div>
       <div class="fact"><div class="fl">Am weitesten im Süden</div><div class="fv">${esc(ST[south][0])}</div></div>
     </div>
     <div class="section-t">Deine Dauerbrenner</div>
-    <div class="card top">${top.map(e=>`<div class="toprow"><div class="tl"><span>${esc(ST[e.p][0])} ↔ ${esc(ST[e.q][0])}</span><span class="num">${e.c}×</span></div><div class="tb"><i style="width:${e.c/max*100}%;background:${tcol(e.c)}"></i></div></div>`).join('')}</div>
+    <div class="card top">${top.map(e=>`<div class="toprow"><div class="tl"><span>${esc(dn(ST[e.p][0]))} ↔ ${esc(dn(ST[e.q][0]))}</span><span class="num">${e.c}×</span></div><div class="tb"><i style="width:${e.c/max*100}%;background:${tcol(e.c)}"></i></div></div>`).join('')}</div>
     <div class="section-t">Deine Lieblingsbahnhöfe</div>
-    <div class="card top">${topSt.map(([i,c])=>`<div class="toprow"><div class="tl"><span>${esc(ST[i][0])}</span><span class="num">${c}×</span></div><div class="tb"><i style="width:${c/topSt[0][1]*100}%;background:var(--accent-2)"></i></div></div>`).join('')}</div>
+    <div class="card top">${topSt.map(([i,c])=>`<div class="toprow"><div class="tl"><span>${esc(dn(ST[i][0]))}</span><span class="num">${c}×</span></div><div class="tb"><i style="width:${c/topSt[0][1]*100}%;background:var(--accent-2)"></i></div></div>`).join('')}</div>
     ${yearsHtml}`;
 }
 
@@ -1700,10 +1783,10 @@ function renderTime(){
     ${fun?`<div class="funfact"><span class="em">🎧</span><span>${fun}</span></div>`:''}
 
     ${stations.length?`<div class="section-t">Bestenliste: Hier hast du gewartet</div>
-    <div class="card board">${stations.map(([n,e])=>`<div class="rank"><span class="pos num">${stations.findIndex(x=>x[0]===n)+1}</span><div style="min-width:0"><div class="rn">${esc(n)}</div><div class="rs num">${e.n}× umgestiegen · max. ${e.max} Min</div><div class="rb"><i style="width:${e.m/smax*100}%;background:#8fb4ff"></i></div></div><span class="rv num">${fmtDur(e.m)}</span></div>`).join('')}</div>`:''}
+    <div class="card board">${stations.map(([n,e])=>`<div class="rank"><span class="pos num">${stations.findIndex(x=>x[0]===n)+1}</span><div style="min-width:0"><div class="rn">${esc(dn(n))}</div><div class="rs num">${e.n}× umgestiegen · max. ${e.max} Min</div><div class="rb"><i style="width:${e.m/smax*100}%;background:#8fb4ff"></i></div></div><span class="rv num">${fmtDur(e.m)}</span></div>`).join('')}</div>`:''}
 
     ${worst.length?`<div class="section-t">Bestenliste: Die größten Verspätungen</div>
-    <div class="card board">${worst.map((t,i)=>`<div class="rank"><span class="pos num">${i+1}</span><div style="min-width:0"><div class="rn">${esc(t.a)} → ${esc(t.b)}</div><div class="rs num">${t.d?fmtDate(t.d):'ohne Datum'}${t.arr?` · geplant ${t.arr}, an ${toHM(toMin(t.arr)+t.delay)}`:''}</div></div><span class="rv num">+${fmtDur(t.delay)}</span></div>`).join('')}</div>`:''}
+    <div class="card board">${worst.map((t,i)=>`<div class="rank"><span class="pos num">${i+1}</span><div style="min-width:0"><div class="rn">${esc(dn(t.a))} → ${esc(dn(t.b))}</div><div class="rs num">${t.d?niceDate(t.d):'ohne Datum'}${t.arr?` · geplant ${t.arr}, an ${toHM(toMin(t.arr)+t.delay)}`:''}</div></div><span class="rv num">+${fmtDur(t.delay)}</span></div>`).join('')}</div>`:''}
 
     ${pairs.length?`<div class="section-t">Bestenliste: Pechstrecken</div>
     <div class="card board">${pairs.map(([k,e],i)=>`<div class="rank"><span class="pos num">${i+1}</span><div style="min-width:0"><div class="rn">${esc(k)}</div><div class="rs num">${e.n}× mit Zeit · Ø ${Math.round(e.m/e.n)} Min zu spät</div><div class="rb"><i style="width:${e.m/pmax*100}%;background:var(--danger)"></i></div></div><span class="rv num">${fmtDur(e.m)}</span></div>`).join('')}</div>`:''}
@@ -1793,6 +1876,9 @@ $('#trips').addEventListener('click',e=>{
   }
 });
 $('#search').addEventListener('input',renderList);
+const sortLabel=()=>{ $('#sortBtn').innerHTML=(state.sortDesc!==false?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>Neueste':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>Älteste'); };
+$('#sortBtn').onclick=()=>{ state.sortDesc = state.sortDesc===false; sortLabel(); save(); renderList(); };
+sortLabel();
 $('#trips').addEventListener('change',e=>{
   const inp=e.target.closest('.trip-edit [data-k]'); if(!inp) return;
   const t=state.trips.find(x=>x.id===inp.closest('.trip-edit').dataset.id); if(!t) return;
@@ -1864,12 +1950,17 @@ async function run(){
       const legs=parseText(data.text||'');
       const label=(f.name||'Screenshot').replace(/\.[a-z0-9]+$/i,'');
       const src=`Bild: ${label}`;
-      for(const l of legs){ const t={id:uid(),a:ST[l.a][0],b:ST[l.b][0],d:l.d||'',n:1,src}; if(l.dep) t.dep=l.dep; if(l.arr) t.arr=l.arr; if(l.delay!=null) t.delay=l.delay; if(l.wait!=null) t.wait=l.wait; if(l.zug) t.zug=l.zug; state.trips.push(t); }
-      total+=legs.length;
+      const sig=t=>[t.a,t.b,t.d||'',t.dep||t.gv||''].join('|');
+      const have=new Set(state.trips.filter(t=>t.d&&(t.dep||t.gv)).map(sig));
+      let added=0, dup=0;
+      for(const l of legs){ const t={id:uid(),a:ST[l.a][0],b:ST[l.b][0],d:l.d||'',n:1,src}; if(l.dep) t.dep=l.dep; if(l.arr) t.arr=l.arr; if(l.delay!=null) t.delay=l.delay; if(l.wait!=null) t.wait=l.wait; if(l.zug) t.zug=l.zug; if(l.gv) t.gv=l.gv;
+        if(t.d && (t.dep||t.gv) && have.has(sig(t))){ dup++; continue; } have.add(sig(t)); state.trips.push(t); added++; }
+      total+=added;
       bar.style.width='100%';
-      const badge=document.createElement('div'); badge.className='qbadge num'+(legs.length?'':' zero'); badge.textContent=legs.length?`+${legs.length}`:'0';
+      const badge=document.createElement('div'); badge.className='qbadge num'+(added?'':' zero'); badge.textContent=added?`+${added}`:'0';
       sp.replaceWith(badge);
-      if(legs.length){ qs.className='qs ok'; qs.textContent=legs.length===1?'1 Fahrt erkannt':`${legs.length} Fahrten erkannt`; render(); }
+      if(added){ qs.className='qs ok'; qs.textContent=(added===1?'1 Fahrt erkannt':`${added} Fahrten erkannt`)+(dup?` · ${dup} schon drin`:''); render(); }
+      else if(dup){ qs.className='qs ok'; qs.textContent=`Schon alles drin (${dup} doppelt)`; }
       else { qs.className='qs warn'; qs.textContent='Keine Bahnhöfe gefunden – unten von Hand ergänzen'; }
     }catch(err){
       console.error(err); qs.className='qs warn'; qs.textContent='Fehler: '+(err.message||err)+' (Internetverbindung?)'; sp.remove();
